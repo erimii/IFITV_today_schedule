@@ -14,6 +14,8 @@ from urllib.parse import quote
 from datetime import datetime, timedelta
 import json
 from dotenv import load_dotenv
+from google.generativeai import GenerativeModel
+import google.generativeai as genai
 
 # 채널 리스트
 '''
@@ -39,8 +41,34 @@ channel_list = [
 # 스포츠는 어떻게 하지?
 genre_map = {'연예/오락': '예능', '뉴스/정보': '보도', '만화': '애니', '교육': '애니', '공연/음악': '예능'}
 
+# 장르별 서브장르 사전
+subgenre_dict = {
+    "드라마": [
+        "해외드라마", "미국드라마", "영국드라마", "중국드라마", "일본드라마",
+        "로맨스", "코미디", "판타지", "무협", "공포", "복수", "휴먼",
+        "범죄 스릴러/수사극", "의학", "웹툰/소설 원작", "정치/권력", "법정",
+        "청춘(성장)", "오피스 드라마", "사극/시대극", "타임슬립"
+    ],
+    "예능": [
+        "버라이어티", "다큐멘터리", "여행", "쿡방/먹방", "연애리얼리티", "게임",
+        "토크쇼", "서바이벌", "관찰리얼리티", "스포츠예능", "교육예능", "힐링예능",
+        "아이돌리얼리티", "음악서바이벌", "음악예능", "코미디", "가족예능",
+        "뷰티", "애니멀"
+    ],
+    "영화": [
+        "드라마", "로맨스", "코미디", "애니메이션", "스릴러", "미스터리",
+        "모험", "액션", "판타지", "SF", "공포", "다큐멘터리"
+    ],
+    "애니": ["키즈"],
+    "보도": ["보도"],
+    "스포츠": ["스포츠"]
+}
+
 # API 인증 정보
 TMDB_API_KEY = '398f2e93b1b5d70c0d1229dae14bccbd'
+
+load_dotenv()
+api_key = os.getenv("GEMINI_API_KEY")
 
 def clean_name(text):
     # 괄호 및 특수 괄호 안의 내용 제거
@@ -111,6 +139,39 @@ def calculate_runtime(df):
     df.drop(columns=['endtime'], inplace=True)
     return df
 
+
+def get_subgenres_from_gemini(description, genre):
+    if not description or genre not in subgenre_dict:
+        return ""
+
+    # 애니/보도는 고정값 처리
+    if genre == "애니":
+        return "키즈"
+    if genre == "보도":
+        return "보도"
+    if genre == "스포츠":
+        return "스포츠"
+
+    candidate_list = subgenre_dict[genre]
+    model = genai.GenerativeModel("gemini-1.5-pro-latest")
+
+    prompt = f"""다음 설명을 보고 아래 서브장르 중에서 해당되는 것을 골라줘. 1개 이상이면 콤마(,)로 구분해줘.
+
+                설명:
+                {description}
+                
+                서브장르 목록:
+                {", ".join(candidate_list)}
+                """
+
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        print(f"[Gemini 오류] {description[:20]}... 처리 실패: {e}")
+        return ""
+
+
 # TMDB로 설명, 썸네일 추가
 def get_from_tmdb(title, genre, api_key):
     search_url = f"https://api.themoviedb.org/3/search/multi"
@@ -159,7 +220,7 @@ def get_from_tmdb(title, genre, api_key):
         print(f"[TMDb Error] {title} 검색 실패: {e}")
         return None, None
 
-
+# 네이버 검색으로 보완
 def get_from_naver_with_driver(driver, title):
     query = f"{title} 정보"
     search_url = f"https://search.naver.com/search.naver?query={query}"
@@ -180,8 +241,18 @@ def get_from_naver_with_driver(driver, title):
 
     return description, thumbnail
 
-
-
+# Gemini API로 보완
+def get_from_gemini(title: str, genre: str):
+    try:
+        genai.configure(api_key="AIzaSyBMdKnlbLxzaDo2xJavQ2hRLNfnkyLYIXA")
+        model = genai.GenerativeModel(model_name="gemini-2.0-flash-lite")
+        prompt = f"한국 {genre} 콘텐츠 '{title}'에 대한 간단한 소개글을 작성해줘. 300자 이내로 줄바꿈 없이 부탁해."
+        response = model.generate_content(prompt)
+        description = response.text.strip().replace('\n', ' ')
+        return description
+    except Exception as e:
+        print(f"[Gemini 오류] {title} 처리 실패: {e}")
+        return None
 
 def get_metadata(title, genre, tmdb_api_key, driver_metadata):
     desc, thumbnail = get_from_tmdb(title, genre, tmdb_api_key)
@@ -192,6 +263,9 @@ def get_metadata(title, genre, tmdb_api_key, driver_metadata):
             desc = desc_n
         if not thumbnail:
             thumbnail = thumb_n
+    
+    if not desc:
+        desc = get_from_gemini(title, genre)
 
     return desc, thumbnail
 
@@ -199,7 +273,22 @@ def get_metadata(title, genre, tmdb_api_key, driver_metadata):
 def get_live_programs():
     start_time = time.time()
     
-    channel_list = ['KBS1[9]', 'KBS2[7]', 'MBC[11]', 'SBS[5]']
+    channel_list = [# 전국 지상파
+    'KBS1[9]', 'KBS2[7]', 'MBC[11]', 'SBS[5]',
+
+    # 종편 + 공영 + 교양
+    'JTBC[15]', 'MBN[16]', '채널A[18]', 'TV조선[19]',
+    'EBS1[14]', 'EBS2[95]', 'OBS[26]',
+
+    # 드라마/예능/영화 전문 채널
+    'tvN[3]', 'OCN[44]', '스크린[46]', '씨네프[47]', 'OCN Movies2[51]',
+    '캐치온1[52]', '캐치온2[53]', '채널액션[54]',
+    '드라마큐브[71]', 'ENA[72]', 'ENA DRAMA[73]',
+    'KBS Story[74]', 'SBS플러스[33]', 'MBC드라마넷[35]',
+
+    # 애니메이션/키즈 채널
+    '투니버스[324]', '카툰네트워크[316]',
+    '애니박스[327]', '애니맥스[326]', '어린이TV[322]']
 
     # 편성표 크롤링용 드라이버
     options = Options()
@@ -299,7 +388,10 @@ def get_live_programs():
                 )
                 df.at[i, 'description'] = desc
                 df.at[i, 'thumbnail'] = thumbnail
-                # df.at[i, 'subgenre'] = subgenre
+                
+                # 서브장르 추출
+                subgenre = get_subgenres_from_gemini(desc, row['genre'])
+                df.at[i, 'subgenre'] = subgenre
 
             
             # 저장
