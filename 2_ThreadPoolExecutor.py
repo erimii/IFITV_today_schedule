@@ -23,8 +23,10 @@ import json
 from dotenv import load_dotenv
 from google.generativeai import GenerativeModel
 import google.generativeai as genai
+from threading import Lock
 
 load_dotenv() 
+selenium_lock = Lock()
 
 # 채널 리스트
 '''
@@ -267,7 +269,8 @@ def get_metadata(title, genre, tmdb_api_key, driver_metadata):
     desc, thumbnail = get_from_tmdb(title, genre, tmdb_api_key)
 
     if not desc or not thumbnail:
-        desc_n, thumb_n = get_from_naver_with_driver(driver_metadata, title)
+        with selenium_lock:
+            desc_n, thumb_n = get_from_naver_with_driver(driver_metadata, title)
         if not desc:
             desc = desc_n
         if not thumbnail:
@@ -402,7 +405,7 @@ def get_live_programs():
                     return i, None, None, None
             
             # 병렬 처리로 메타데이터 보강
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [executor.submit(process_metadata, i, row) for i, row in df.iterrows()]
                 for future in as_completed(futures):
                     i, desc, thumbnail, subgenre = future.result()
