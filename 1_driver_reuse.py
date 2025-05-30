@@ -17,6 +17,9 @@ from dotenv import load_dotenv
 from google.generativeai import GenerativeModel
 import google.generativeai as genai
 
+load_dotenv() 
+print("🔑 ENV 키 확인:", os.getenv("GEMINI_API_KEY"))
+
 # 채널 리스트
 '''
 channel_list = [
@@ -182,7 +185,7 @@ def get_from_tmdb(title, genre, api_key):
         print(title)
         
     params = {
-        "api_key": api_key,
+        "api_key": os.getenv("TMDB_API_KEY"),
         "language": "ko-KR",
         "query": title,
         "include_adult": "false"
@@ -244,7 +247,8 @@ def get_from_naver_with_driver(driver, title):
 # Gemini API로 보완
 def get_from_gemini(title: str, genre: str):
     try:
-        genai.configure(api_key="AIzaSyBMdKnlbLxzaDo2xJavQ2hRLNfnkyLYIXA")
+        api_key = os.getenv("GEMINI_API_KEY")
+        genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name="gemini-2.0-flash-lite")
         prompt = f"한국 {genre} 콘텐츠 '{title}'에 대한 간단한 소개글을 작성해줘. 300자 이내로 줄바꿈 없이 부탁해."
         response = model.generate_content(prompt)
