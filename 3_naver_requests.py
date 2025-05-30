@@ -1,7 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri May 30 22:35:48 2025
+
+@author: Admin
+"""
 
 import os
 import re
-import time, random
+import time
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
@@ -242,21 +248,11 @@ def get_from_naver_with_driver(driver, title):
 
 # Naver requests
 def get_from_naver_with_requests(title):
-    time.sleep(random.uniform(0.5, 1.5))
     try:
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Referer": "https://www.naver.com",
-            "Connection": "keep-alive"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
-
+        
         query = f"{title} 정보"
         search_url = f"https://search.naver.com/search.naver?query={quote(query)}"
         response = requests.get(search_url, headers=headers)
@@ -264,18 +260,21 @@ def get_from_naver_with_requests(title):
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        description = soup.select_one('.intro_box .text.no_ellipsis')
-        thumbnail = soup.select_one('.cm_info_box .detail_info a.thumb img')
+        try:
+            description = soup.select_one('.intro_box .text.no_ellipsis').text.strip()
+        except:
+            description = None
 
-        desc_text = description.text.strip() if description else None
-        thumb_url = thumbnail['src'] if thumbnail else None
+        try:
+            thumbnail = soup.select_one('.cm_info_box .detail_info a.thumb img')['src']
+        except:
+            thumbnail = None
 
-        return desc_text, thumb_url
+        return description, thumbnail
 
     except Exception as e:
         print(f"[Naver Requests 오류] {title} → {e}")
         return None, None
-
 
 # Gemini API로 보완
 def get_from_gemini(title: str, genre: str):
